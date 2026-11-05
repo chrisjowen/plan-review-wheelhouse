@@ -1,0 +1,27 @@
+{
+	"$schema": "https://raw.githubusercontent.com/chrisjowen/wheelhouse/main/packages/plugin-sdk/plugin.schema.json",
+	"name": "plan-review",
+	"displayName": "Plan review",
+	"version": "0.1.0",
+	"description": "A section on each task where you read its plan (plan.md, spec.md, report.md, or any Markdown file you point at), comment on lines or a passage, approve it or ask for changes, and send it all to Firstmate as one list. Nothing is sent until you click Send.",
+	"author": {
+		"name": "Chris Owen",
+		"url": "https://github.com/chrisjowen"
+	},
+	"repository": "https://github.com/chrisjowen/plan-review-wheelhouse",
+	"license": "MIT",
+	"keywords": ["firstmate", "plan", "review", "markdown"],
+	"wheelhouse": {
+		"apiVersion": 1,
+		"server": "wheelhouse/server/index.js",
+		"ui": "wheelhouse/ui/index.js",
+		"enabledByDefault": false,
+		"contributions": [
+			{
+				"id": "plan",
+				"slot": "task.section"
+			}
+		],
+		"capabilities": ["feedback"]
+	}
+}
