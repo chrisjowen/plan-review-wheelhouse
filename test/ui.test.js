@@ -446,6 +446,22 @@ describe('when the document changes', () => {
 		assert.notEqual(stored().hash, before.hash);
 	});
 
+	it('keeps “text changed” on a note whose quote is gone, after the draft is opened again', () => {
+		const el = mount();
+		comment(el, 7, 'Use a migration, not a raw table');
+		const text = PLAN.replace('1. Add the widget table.\n', '1. Add the board column.\n');
+		refreshed(el, text);
+		byText(el, '.banner button', 'Move notes onto this text').click();
+		assert.match($(unitAt(el, 7), '.note .moved').textContent, /text changed/);
+		const again = mount({
+			d: data([
+				{ path: 'data/lumen-plan/plan.md', name: 'plan.md', source: 'home', text, truncated: false }
+			])
+		});
+		assert.match($(unitAt(again, 7), '.note .moved').textContent, /text changed/);
+		assert.equal($(again, '.banner'), null);
+	});
+
 	it('sends nothing after a refresh brought new text, until the notes move onto it', async () => {
 		const host = fakeHost();
 		const el = mount({ host });

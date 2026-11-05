@@ -119,7 +119,8 @@ export function readDraft(v, hash) {
 			quote: typeof n.quote === 'string' ? n.quote : '',
 			from: Number.isInteger(n.from) ? n.from : null,
 			to: Number.isInteger(n.to) ? n.to : null,
-			at: Number(n.at) || 0
+			at: Number(n.at) || 0,
+			...(n.moved === true ? { moved: true } : {})
 		}));
 	return {
 		hash: typeof v.hash === 'string' ? v.hash : null,
