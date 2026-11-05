@@ -56,14 +56,18 @@ async function homeDocs(ctx, taskId) {
 
 /** The task worktree's full path, for the tab to read a file there again through Wheelhouse's reader. */
 async function worktree(ctx) {
-	const r = await ctx.exec({
-		argv: ['git', 'rev-parse', '--show-toplevel'],
-		cwd: 'task',
-		timeoutMs: 2_000,
-		maxBytes: 4096
-	});
-	const top = r.ok ? r.stdout.trim() : '';
-	return top.startsWith('/') ? top : null;
+	try {
+		const r = await ctx.exec({
+			argv: ['git', 'rev-parse', '--show-toplevel'],
+			cwd: 'task',
+			timeoutMs: 2_000,
+			maxBytes: 4096
+		});
+		const top = r?.ok ? String(r.stdout).trim() : '';
+		return top.startsWith('/') ? top : null;
+	} catch {
+		return null;
+	}
 }
 
 /** Markdown files the task changed in its worktree, such as a plan the worker committed. */

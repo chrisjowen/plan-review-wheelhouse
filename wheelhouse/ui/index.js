@@ -186,9 +186,8 @@ export class PlanReviewSection extends HTMLElement {
 		const key = doc ? `${task}\n${doc.path}\n${hash}` : null;
 		if (key !== this.shown) {
 			this.shown = key;
-			// A long plan's draft waits for its whole text, so its notes are not moved against a part of it.
-			this.reading =
-				!!doc?.truncated && doc.source === 'home' && this.full.get(doc.path)?.base !== hash;
+			// A long document's draft waits for its whole text, so it is not checked against a part of it.
+			this.reading = !!doc?.truncated && !!readPath(doc) && this.full.get(doc.path)?.base !== hash;
 			this.loadDraft(this.reading ? null : doc, hash);
 			this.renderDocument();
 			if (this.reading) void this.readFull(doc.path);
@@ -223,20 +222,38 @@ export class PlanReviewSection extends HTMLElement {
 		const doc = this.doc;
 		if (!doc || !this.taskId || !this.draft) return;
 		const d = this.draft;
-		const empty = !d.notes.length && !tidy(d.overall) && !d.verdict;
-		store.set(draftKey(this.taskId, doc.path), empty ? null : d);
+		store.set(draftKey(this.taskId, doc.path), blank(d) ? null : d);
 	}
 
-	/** After the document is drawn: notes follow their quotes if the text changed under them. */
+	/**
+	 * After the document is drawn: a draft keeps the fingerprint of the text it
+	 * was written on, so a document that changed under it is only flagged, until
+	 * the captain moves the notes onto the new text.
+	 */
 	checkChanged(hash) {
 		const d = this.draft;
 		if (!d) return;
-		if (d.hash && d.hash !== hash && d.notes.length) {
-			d.notes = reanchor(d.notes, this.units);
+		if (d.hash && d.hash !== hash && !blank(d)) {
 			this.changed = true;
+			return;
 		}
 		d.hash = hash;
 		this.save();
+	}
+
+	/** Move the notes onto the text shown now, to where their quotes are, and take it as the text reviewed. */
+	moveNotes() {
+		const d = this.draft;
+		const doc = this.doc;
+		if (!d || !doc) return;
+		d.notes = reanchor(d.notes, this.units);
+		d.hash = fingerprint(doc.text);
+		this.changed = false;
+		this.error = null;
+		this.save();
+		this.renderBanner();
+		this.renderNotes();
+		this.renderPanel();
 	}
 
 	// ---- the document picker ----
@@ -368,9 +385,10 @@ export class PlanReviewSection extends HTMLElement {
 
 	/** The whole of a long document; if Wheelhouse's reader cannot read it, the part the provider read. */
 	async readFull(path) {
-		const base = this.docs.find((x) => x.path === path)?.text;
-		if (base === undefined) return;
-		const r = await readThroughWheelhouse(path);
+		const d = this.docs.find((x) => x.path === path);
+		if (!d) return;
+		const base = d.text;
+		const r = await readThroughWheelhouse(readPath(d));
 		if (this.docs.find((x) => x.path === path)?.text !== base) return;
 		this.full.set(
 			path,
@@ -381,7 +399,7 @@ export class PlanReviewSection extends HTMLElement {
 		if (this.isConnected) this.sync();
 	}
 
-	/** Show the document as it now is, so its notes move to where their quotes are. */
+	/** Show the document as it now is on disk, and move the notes onto it. */
 	useNewText() {
 		const s = this.stale;
 		const base = this.docs.find((x) => x.path === s?.path)?.text;
@@ -389,6 +407,7 @@ export class PlanReviewSection extends HTMLElement {
 		if (base !== undefined)
 			this.full.set(s.path, { text: s.text, base: fingerprint(base), truncated: false });
 		this.sync();
+		this.moveNotes();
 	}
 
 	// ---- the document ----
@@ -532,7 +551,6 @@ export class PlanReviewSection extends HTMLElement {
 			);
 		}
 		if (this.changed) {
-			const moved = this.draft?.notes.some((n) => n.moved);
 			out.push(
 				h(
 					'div',
@@ -540,21 +558,12 @@ export class PlanReviewSection extends HTMLElement {
 					h(
 						'span',
 						null,
-						moved
-							? 'This document changed since you started. Notes moved with their quotes; check the ones marked “text changed”.'
-							: 'This document changed since you started. Your notes moved with the text they quote.'
+						'This document changed since you started your review. Your notes still point at the text you wrote them on; nothing is sent until you move them onto this text.'
 					),
 					h(
 						'button',
-						{
-							type: 'button',
-							class: 'quiet',
-							onclick: () => {
-								this.changed = false;
-								this.renderBanner();
-							}
-						},
-						'OK'
+						{ type: 'button', class: 'quiet', onclick: () => this.moveNotes() },
+						'Move notes onto this text'
 					)
 				)
 			);
@@ -788,7 +797,7 @@ export class PlanReviewSection extends HTMLElement {
 			return;
 		}
 		const notes = inOrder(d.notes);
-		const drafting = notes.length > 0 || !!tidy(d.overall) || !!d.verdict;
+		const drafting = !blank(d);
 		const list = notes.length
 			? h(
 					'ol',
@@ -966,7 +975,8 @@ export class PlanReviewSection extends HTMLElement {
 		if (!built.ok || this.sending || typeof this.host?.sendFeedback !== 'function') return;
 		const task = this.taskId;
 		const doc = this.doc;
-		const noted = review.notes.length;
+		const reviewed = this.draft.hash;
+		const sent = new Set(review.notes.map((n) => `${n.id}\n${n.text}`));
 		this.sending = true;
 		this.error = null;
 		this.stale = null;
@@ -977,13 +987,12 @@ export class PlanReviewSection extends HTMLElement {
 			if (here()) this.error = error;
 			this.renderPanel();
 		};
-		const now =
-			doc.file || doc.source !== 'task'
-				? await readThroughWheelhouse(doc.file ?? doc.path)
-				: { ok: false, error: 'Wheelhouse gave no path to read it by.' };
+		const now = readPath(doc)
+			? await readThroughWheelhouse(readPath(doc))
+			: { ok: false, error: 'Wheelhouse gave no path to read it by.' };
 		if (!now.ok)
 			return stop(`Could not read ${doc.name} again to check it is unchanged: ${now.error}`);
-		if (fingerprint(now.text) !== fingerprint(doc.text)) {
+		if (fingerprint(now.text) !== reviewed) {
 			this.stale = { path: doc.path, name: doc.name, text: now.text };
 			return stop(null);
 		}
@@ -995,16 +1004,26 @@ export class PlanReviewSection extends HTMLElement {
 		const record = {
 			at: Date.now(),
 			verdict: review.verdict,
-			notes: noted,
+			notes: sent.size,
 			pending: !!r.pending
 		};
 		store.set(sentKey(task, doc.path), record);
-		store.set(draftKey(task, doc.path), null);
+		// What was sent leaves the draft; anything added or changed while sending stays.
+		const rest = (d) => ({
+			...d,
+			notes: d.notes.filter((n) => !sent.has(`${n.id}\n${n.text}`)),
+			verdict: d.verdict === review.verdict ? null : d.verdict,
+			overall: d.overall === review.overall ? '' : d.overall
+		});
 		if (here() && this.draft) {
-			this.draft = emptyDraft(this.draft.hash);
-			this.composer = null;
+			this.draft = rest(this.draft);
+			this.save();
 			this.notice = sentEl(record, true);
 			this.renderNotes();
+		} else {
+			const stored = store.get(draftKey(task, doc.path));
+			const left = stored ? rest(readDraft(stored, null)) : null;
+			store.set(draftKey(task, doc.path), left && !blank(left) ? left : null);
 		}
 		this.renderPicker();
 		this.renderPanel();
@@ -1055,6 +1074,11 @@ function slotOf(el) {
 function sendHint(list) {
 	return `Checks the document is unchanged, then sends ${plural(list.items.length, 'line')} to Firstmate as one list, for this task’s worker.`;
 }
+
+const blank = (d) => !d.notes.length && !tidy(d.overall) && !d.verdict;
+
+/** Where Wheelhouse's reader reads a document from; null for a worktree file whose full path is unknown. */
+const readPath = (doc) => doc.file ?? (doc.source === 'task' ? null : doc.path);
 
 const isMarkdown = (p) => typeof p === 'string' && /\.md$/i.test(p.split(/[?#]/)[0]);
 

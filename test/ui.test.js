@@ -369,6 +369,31 @@ describe('sending the review', () => {
 		assert.match($(el, '.panel .sent').textContent, /Request changes, 1 note\./);
 	});
 
+	it('keeps what was added or changed while sending', async () => {
+		let answer;
+		const host = fakeHost(() => new Promise((r) => (answer = r)));
+		const el = mount({ host });
+		comment(el, 7, 'Use a migration');
+		byText(el, '.verdict button', 'Request changes').click();
+		byText(el, '.panel button', 'Send to Firstmate').click();
+		await settle();
+		assert.equal(host.sent.length, 1);
+		comment(el, 10, 'Put Share in the menu');
+		answer({ ok: true, pending: false });
+		await settle();
+		assert.equal($(unitAt(el, 7), '.note'), null);
+		assert.match($(unitAt(el, 10), '.note').textContent, /Put Share in the menu/);
+		const draft = JSON.parse(
+			localStorage.getItem(`plan-review:v1:${TASK}:data/lumen-plan/plan.md`)
+		);
+		assert.deepEqual(
+			draft.notes.map((n) => n.text),
+			['Put Share in the menu']
+		);
+		assert.equal(draft.verdict, null);
+		assert.match($(el, '.panel .sent').textContent, /Request changes, 1 note\./);
+	});
+
 	it('keeps a bar with Send in view, which leads to the verdict until there is one', async () => {
 		const host = fakeHost();
 		const el = mount({ host });
@@ -398,23 +423,51 @@ describe('sending the review', () => {
 });
 
 describe('when the document changes', () => {
-	it('moves notes with the text they quote, and says so', () => {
+	const refreshed = (el, text) => {
+		el.data = data([
+			{ path: 'data/lumen-plan/plan.md', name: 'plan.md', source: 'home', text, truncated: false }
+		]);
+	};
+	const stored = () =>
+		JSON.parse(localStorage.getItem(`plan-review:v1:${TASK}:data/lumen-plan/plan.md`));
+
+	it('says so when a refresh brings new text, and moves the notes only when asked', () => {
 		const el = mount();
 		comment(el, 7, 'Use a migration, not a raw table');
-		const changed = PLAN.replace('## Steps\n', '## Steps\n\nIn three steps:\n');
-		el.data = data([
-			{
-				path: 'data/lumen-plan/plan.md',
-				name: 'plan.md',
-				source: 'home',
-				text: changed,
-				truncated: false
-			}
-		]);
-		assert.match($(unitAt(el, 9), '.note').textContent, /Your note · line 9/);
-		assert.match($(el, '.banner').textContent, /changed since you started/);
-		byText(el, '.banner button', 'OK').click();
+		const before = stored();
+		refreshed(el, PLAN.replace('## Steps\n', '## Steps\n\nIn three steps:\n'));
+		assert.match($(el, '.banner').textContent, /changed since you started your review/);
+		assert.deepEqual(stored(), before);
+		assert.match($(unitAt(el, 7), '.note').textContent, /Your note · line 7/);
+		byText(el, '.banner button', 'Move notes onto this text').click();
 		assert.equal($(el, '.banner'), null);
+		assert.match($(unitAt(el, 9), '.note').textContent, /Your note · line 9/);
+		assert.equal(stored().notes[0].from, 9);
+		assert.notEqual(stored().hash, before.hash);
+	});
+
+	it('sends nothing after a refresh brought new text, until the notes move onto it', async () => {
+		const host = fakeHost();
+		const el = mount({ host });
+		comment(el, 7, 'Use a migration, not a raw table');
+		byText(el, '.verdict button', 'Request changes').click();
+		disk.set(
+			'data/lumen-plan/plan.md',
+			PLAN.replace('## Steps\n', '## Steps\n\nIn three steps:\n')
+		);
+		refreshed(el, PLAN.replace('## Steps\n', '## Steps\n\nIn three steps:\n'));
+		byText(el, '.panel button', 'Send to Firstmate').click();
+		await settle();
+		assert.equal(host.sent.length, 0);
+		assert.match(
+			$(el, '.panel [role="alert"]').textContent,
+			/plan\.md changed since you opened it/
+		);
+		byText(el, '.panel button', 'Use the new text').click();
+		assert.match($(unitAt(el, 9), '.note').textContent, /Your note · line 9/);
+		byText(el, '.panel button', 'Send to Firstmate').click();
+		await settle();
+		assert.equal(host.sent[0].items[0].points, '“Add the widget table.” (line 9)');
 	});
 
 	it('reads it again on Send, and sends nothing if it changed, until the notes move onto the new text', async () => {
@@ -437,7 +490,7 @@ describe('when the document changes', () => {
 		byText(el, '.panel button', 'Use the new text').click();
 		assert.equal($(el, '.panel [role="alert"]'), null);
 		assert.match($(unitAt(el, 9), '.note').textContent, /Your note · line 9/);
-		assert.match($(el, '.banner').textContent, /changed since you started/);
+		assert.equal($(el, '.banner'), null);
 		byText(el, '.panel button', 'Send to Firstmate').click();
 		await settle();
 		assert.equal(host.sent[0].items[0].points, '“Add the widget table.” (line 9)');
@@ -572,6 +625,31 @@ describe('a long plan', () => {
 		assert.equal($(again, '.banner'), null);
 		assert.match($(unitAt(again, 25), '.note').textContent, /Say what happens later/);
 		assert.equal(localStorage.getItem(`plan-review:v1:${TASK}:data/lumen-plan/plan.md`), before);
+	});
+
+	it('reads a long file the task changed through its full path, and sends it unchanged', async () => {
+		disk.set('/w/lumen-plan/docs/plan.md', WHOLE);
+		const host = fakeHost();
+		const el = mount({
+			host,
+			d: data([
+				{
+					path: 'docs/plan.md',
+					name: 'plan.md',
+					source: 'task',
+					file: '/w/lumen-plan/docs/plan.md',
+					text: PLAN.slice(0, 60),
+					truncated: true
+				}
+			])
+		});
+		await settle();
+		assert.match($(el, '.doc').textContent, /The end\./);
+		byText(el, '.verdict button', 'Approve').click();
+		byText(el, '.panel button', 'Send to Firstmate').click();
+		await settle();
+		assert.equal($(el, '.panel [role="alert"]'), null);
+		assert.equal(host.sent[0].subject, 'docs/plan.md: Approve');
 	});
 
 	it('notices a change past the first 64 KB on Send', async () => {

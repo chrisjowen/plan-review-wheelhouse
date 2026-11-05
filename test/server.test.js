@@ -102,6 +102,28 @@ describe('the docs provider', () => {
 			})
 		);
 		assert.equal(blind.value.docs[0].file, null);
+		// Nor when Wheelhouse cannot run the lookup at all; the home plan still shows.
+		for (const exec of [
+			undefined,
+			async () => {
+				throw new Error('timed out');
+			}
+		]) {
+			const c = ctx({
+				home: { 'data/lumen-plan/plan.md': '# Plan' },
+				changed: ['README.md'],
+				worktree: { 'README.md': '# Lumen' }
+			});
+			c.exec = exec;
+			const r2 = await provider.fetch(c);
+			assert.deepEqual(
+				r2.value.docs.map((d) => [d.path, d.file ?? null]),
+				[
+					['data/lumen-plan/plan.md', null],
+					['README.md', null]
+				]
+			);
+		}
 	});
 
 	it('says when Wheelhouse’s read limit cut a long document short', async () => {
