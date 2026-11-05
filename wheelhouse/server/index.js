@@ -54,13 +54,28 @@ async function homeDocs(ctx, taskId) {
 	return docs;
 }
 
+/** The task worktree's full path, for the tab to read a file there again through Wheelhouse's reader. */
+async function worktree(ctx) {
+	const r = await ctx.exec({
+		argv: ['git', 'rev-parse', '--show-toplevel'],
+		cwd: 'task',
+		timeoutMs: 2_000,
+		maxBytes: 4096
+	});
+	const top = r.ok ? r.stdout.trim() : '';
+	return top.startsWith('/') ? top : null;
+}
+
 /** Markdown files the task changed in its worktree, such as a plan the worker committed. */
 async function taskDocs(ctx, taskId) {
 	const changed = ((await ctx.changedFiles(taskId)) ?? []).filter((f) => MARKDOWN.test(f));
+	if (!changed.length) return [];
+	const top = await worktree(ctx);
 	const docs = [];
 	for (const path of changed.slice(0, MAX_TASK_DOCS)) {
 		const r = await read(ctx, path, 'task');
-		if (r) docs.push({ path, name: path.split('/').pop(), source: 'task', ...r });
+		const file = top ? `${top}/${path}` : null;
+		if (r) docs.push({ path, name: path.split('/').pop(), source: 'task', file, ...r });
 	}
 	return docs;
 }

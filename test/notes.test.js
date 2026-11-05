@@ -7,7 +7,6 @@ import {
 	emptyDraft,
 	fingerprint,
 	lineLabel,
-	listText,
 	MAX_POINTS,
 	MAX_SUBJECT,
 	pointsFor,
@@ -101,24 +100,6 @@ describe('the feedback list', () => {
 		const s = subjectFor(`data/${'deep/'.repeat(60)}plan.md`, 'changes');
 		assert.ok([...s].length <= MAX_SUBJECT);
 		assert.match(s, /^….*plan\.md: Request changes$/);
-	});
-
-	it('reads as text for Firstmate’s chat box on a Wheelhouse that cannot send', () => {
-		const r = buildList({
-			path: 'plan.md',
-			verdict: 'changes',
-			overall: 'Tighten it',
-			notes: [note()]
-		});
-		assert.equal(
-			listText('lumen-plan', r.list),
-			[
-				'Plan review for lumen-plan, about plan.md: Request changes:',
-				'1. Tighten it',
-				'2. Use a migration, not a raw table',
-				'   Points at: “1. Add the widget table.” (line 7)'
-			].join('\n')
-		);
 	});
 });
 

@@ -92,20 +92,7 @@ export function buildList({ path, verdict, overall, notes }) {
 	return { ok: true, list: { subject: subjectFor(path, verdict), items } };
 }
 
-/**
- * The same list as text, for a Wheelhouse that cannot send plugin feedback:
- * it goes into Firstmate's chat box for the captain to send.
- */
-export function listText(task, list) {
-	const lines = [`Plan review for ${task}, about ${list.subject}:`];
-	list.items.forEach((it, i) => {
-		lines.push(`${i + 1}. ${it.text}`);
-		if (it.points) lines.push(`   Points at: ${it.points}`);
-	});
-	return lines.join('\n');
-}
-
-/** A short fingerprint of a document's text (FNV-1a), to notice it changed under a draft. */
+/** A short fingerprint of a document's whole text (FNV-1a), to notice it changed under a draft. */
 export function fingerprint(text) {
 	let h = 0x811c9dc5;
 	for (let i = 0; i < text.length; i++) {

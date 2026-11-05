@@ -5,7 +5,13 @@ import plugin, { MAX_BYTES, rank } from '../wheelhouse/server/index.js';
 const TASK = { id: 'lumen-plan', title: 'Plan the share links', projectId: 'lumen' };
 
 /** A provider context over made-up files: `home` and `task` map paths to text. */
-function ctx({ task = TASK, home = {}, worktree = {}, changed = null } = {}) {
+function ctx({
+	task = TASK,
+	home = {},
+	worktree = {},
+	changed = null,
+	top = { ok: true, stdout: '/w/lumen-plan\n' }
+} = {}) {
 	const calls = [];
 	const files = { home, task: worktree };
 	return {
@@ -29,6 +35,10 @@ function ctx({ task = TASK, home = {}, worktree = {}, changed = null } = {}) {
 		async changedFiles(id) {
 			calls.push(['changedFiles', id]);
 			return changed;
+		},
+		async exec(c) {
+			calls.push(['exec', c.argv, c.cwd]);
+			return top;
 		}
 	};
 }
@@ -72,12 +82,26 @@ describe('the docs provider', () => {
 			})
 		);
 		assert.deepEqual(
-			r.value.docs.map((d) => [d.path, d.name, d.source]),
+			r.value.docs.map((d) => [d.path, d.name, d.source, d.file]),
 			[
-				['docs/plans/share-links.md', 'share-links.md', 'task'],
-				['README.md', 'README.md', 'task']
+				[
+					'docs/plans/share-links.md',
+					'share-links.md',
+					'task',
+					'/w/lumen-plan/docs/plans/share-links.md'
+				],
+				['README.md', 'README.md', 'task', '/w/lumen-plan/README.md']
 			]
 		);
+		// Without the worktree's path, the tab cannot read them again.
+		const blind = await provider.fetch(
+			ctx({
+				changed: ['README.md'],
+				worktree: { 'README.md': '# Lumen' },
+				top: { ok: false, reason: 'no git', stdout: '', stderr: '' }
+			})
+		);
+		assert.equal(blind.value.docs[0].file, null);
 	});
 
 	it('says when Wheelhouse’s read limit cut a long document short', async () => {

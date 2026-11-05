@@ -2,7 +2,7 @@
  * The section in a page (jsdom), as Wheelhouse hosts it: `host` (with
  * sendFeedback), `entry` and `data` set on the element. Comments by line and
  * by selected passage, the verdict, sending, drafts, a document that changes
- * under a draft, and opening another file by path.
+ * under a draft or before it is sent, and opening another file by path.
  */
 
 import assert from 'node:assert/strict';
@@ -58,6 +58,21 @@ function fakeHost(answer = { ok: true, pending: false }) {
 }
 
 const tick = () => new Promise((r) => setTimeout(r, 0));
+const settle = async () => {
+	for (let i = 0; i < 5; i++) await tick();
+};
+
+/** The files Wheelhouse's reader serves (/api/files): path → text. */
+let disk = new Map();
+const realFetch = globalThis.fetch;
+async function reader(url) {
+	const p = new URL(url, 'http://127.0.0.1').searchParams.get('path');
+	if (disk.has(p)) return new Response(disk.get(p), { status: 200 });
+	return new Response(JSON.stringify({ message: 'There is no such file.' }), {
+		status: 404,
+		headers: { 'content-type': 'application/json' }
+	});
+}
 const $ = (el, sel) => el.querySelector(sel);
 const $$ = (el, sel) => [...el.querySelectorAll(sel)];
 const byText = (el, sel, text) =>
@@ -93,10 +108,15 @@ function comment(el, line, text) {
 before(async () => {
 	await import('../wheelhouse/ui/index.js');
 });
-after(() => window.close());
+after(() => {
+	globalThis.fetch = realFetch;
+	window.close();
+});
 beforeEach(() => {
 	localStorage.clear();
 	document.body.replaceChildren();
+	disk = new Map(data().docs.map((d) => [d.path, d.text]));
+	globalThis.fetch = reader;
 });
 
 describe('reading the plan', () => {
@@ -248,9 +268,10 @@ describe('sending the review', () => {
 		type($(el, '.panel textarea[name="overall"]'), 'Close. Tighten the rollout.');
 		const ready = byText(el, '.panel button', 'Send to Firstmate');
 		assert.equal(ready.disabled, false);
-		assert.match($(el, '.panel .why').textContent, /Sends 3 lines to Firstmate as one list/);
+		assert.match($(el, '.panel .why').textContent, /then sends 3 lines to Firstmate as one list/);
 		ready.click();
-		// Sent straight from the click, while the browser still counts it as the captain's.
+		assert.equal(byText(el, '.panel button', 'Sending…').disabled, true);
+		await settle();
 		assert.deepEqual(host.sent, [
 			{
 				subject: 'data/lumen-plan/plan.md: Request changes',
@@ -264,8 +285,6 @@ describe('sending the review', () => {
 				]
 			}
 		]);
-		assert.equal(byText(el, '.panel button', 'Sending…').disabled, true);
-		await tick();
 		assert.match(
 			$(el, '.panel .sent').textContent,
 			/Sent to Firstmate\. Request changes, 2 notes\./
@@ -289,13 +308,13 @@ describe('sending the review', () => {
 		byText(el, '.verdict button', 'Approve').click();
 		assert.equal(byText(el, '.verdict button', 'Approve').getAttribute('aria-checked'), 'true');
 		byText(el, '.panel button', 'Send to Firstmate').click();
+		await settle();
 		assert.deepEqual(host.sent, [
 			{
 				subject: 'data/lumen-plan/plan.md: Approve',
 				items: [{ text: 'Approved as written. Go ahead.' }]
 			}
 		]);
-		await tick();
 		assert.match($(el, '.panel .sent').textContent, /still confirming Firstmate has it/);
 	});
 
@@ -305,7 +324,7 @@ describe('sending the review', () => {
 		comment(el, 10, 'Put Share in the menu instead');
 		byText(el, '.verdict button', 'Request changes').click();
 		byText(el, '.panel button', 'Send to Firstmate').click();
-		await tick();
+		await settle();
 		const why = $(el, '.panel .why');
 		assert.equal(why.textContent, 'Firstmate is not running.');
 		assert.ok(why.classList.contains('error'));
@@ -313,16 +332,44 @@ describe('sending the review', () => {
 		assert.equal(byText(el, '.panel button', 'Send to Firstmate').disabled, false);
 	});
 
-	it('offers Firstmate’s chat box on a Wheelhouse that cannot send from plugins', () => {
+	it('says so, and sends nothing, on a Wheelhouse that cannot send from plugins', () => {
 		const host = fakeHost();
 		delete host.sendFeedback;
 		const el = mount({ host });
 		byText(el, '.verdict button', 'Approve').click();
-		assert.ok(byText(el, '.panel button', 'Open in Firstmate’s chat'));
-		assert.match($(el, '.panel .why').textContent, /go into Firstmate’s chat box for you to send/);
+		assert.equal(byText(el, '.panel button', 'Send to Firstmate').disabled, true);
+		assert.equal($(el, '.dock button').disabled, true);
+		assert.match($(el, '.panel .why').textContent, /too old to send plan reviews/);
 	});
 
-	it('keeps a bar with Send in view, which leads to the verdict until there is one', () => {
+	it('settles only the document it sent, whichever is open when Wheelhouse answers', async () => {
+		let answer;
+		const host = fakeHost(() => new Promise((r) => (answer = r)));
+		const el = mount({ host });
+		byText(el, '.picker .chip', 'spec.md').click();
+		comment(el, 3, 'Which key?');
+		byText(el, '.picker .chip', 'plan.md').click();
+		comment(el, 7, 'Use a migration');
+		byText(el, '.verdict button', 'Request changes').click();
+		byText(el, '.panel button', 'Send to Firstmate').click();
+		await settle();
+		assert.equal(host.sent.length, 1);
+		byText(el, '.picker .chip', 'spec.md').click();
+		answer({ ok: true, pending: false });
+		await settle();
+		assert.equal(localStorage.getItem(`plan-review:v1:${TASK}:data/lumen-plan/plan.md`), null);
+		assert.equal(
+			JSON.parse(localStorage.getItem(`plan-review:v1:${TASK}:data/lumen-plan/spec.md`)).notes[0]
+				.text,
+			'Which key?'
+		);
+		assert.match($(unitAt(el, 3), '.note').textContent, /Which key\?/);
+		byText(el, '.picker .chip', 'plan.md').click();
+		assert.equal($(el, '.note'), null);
+		assert.match($(el, '.panel .sent').textContent, /Request changes, 1 note\./);
+	});
+
+	it('keeps a bar with Send in view, which leads to the verdict until there is one', async () => {
 		const host = fakeHost();
 		const el = mount({ host });
 		const bar = () => $(el, '.dock');
@@ -337,6 +384,7 @@ describe('sending the review', () => {
 		assert.equal($(bar(), '.summary').textContent, '1 note · Request changes');
 		assert.equal($(bar(), 'button').textContent, 'Send to Firstmate');
 		$(bar(), 'button').click();
+		await settle();
 		assert.equal(host.sent.length, 1);
 	});
 
@@ -367,6 +415,43 @@ describe('when the document changes', () => {
 		assert.match($(el, '.banner').textContent, /changed since you started/);
 		byText(el, '.banner button', 'OK').click();
 		assert.equal($(el, '.banner'), null);
+	});
+
+	it('reads it again on Send, and sends nothing if it changed, until the notes move onto the new text', async () => {
+		const host = fakeHost();
+		const el = mount({ host });
+		comment(el, 7, 'Use a migration, not a raw table');
+		byText(el, '.verdict button', 'Request changes').click();
+		disk.set(
+			'data/lumen-plan/plan.md',
+			PLAN.replace('## Steps\n', '## Steps\n\nIn three steps:\n')
+		);
+		byText(el, '.panel button', 'Send to Firstmate').click();
+		await settle();
+		assert.equal(host.sent.length, 0);
+		assert.match(
+			$(el, '.panel [role="alert"]').textContent,
+			/plan\.md changed since you opened it/
+		);
+		assert.equal(byText(el, '.panel button', 'Send to Firstmate').disabled, false);
+		byText(el, '.panel button', 'Use the new text').click();
+		assert.equal($(el, '.panel [role="alert"]'), null);
+		assert.match($(unitAt(el, 9), '.note').textContent, /Your note · line 9/);
+		assert.match($(el, '.banner').textContent, /changed since you started/);
+		byText(el, '.panel button', 'Send to Firstmate').click();
+		await settle();
+		assert.equal(host.sent[0].items[0].points, '“Add the widget table.” (line 9)');
+	});
+
+	it('sends nothing when it cannot read the document again', async () => {
+		const host = fakeHost();
+		const el = mount({ host });
+		byText(el, '.verdict button', 'Approve').click();
+		disk.delete('data/lumen-plan/plan.md');
+		byText(el, '.panel button', 'Send to Firstmate').click();
+		await settle();
+		assert.equal(host.sent.length, 0);
+		assert.match($(el, '.panel .why.error').textContent, /Could not read plan\.md again/);
 	});
 
 	it('leaves the page alone when the same text comes again', () => {
@@ -403,10 +488,12 @@ describe('another file', () => {
 			await tick();
 			await tick();
 			assert.match($(el, '.other').textContent, /outside the folders Wheelhouse may read/);
-			input.value = 'notes.txt';
-			byText(el, '.other button', 'Open').click();
-			await tick();
-			assert.match($(el, '.other').textContent, /opens Markdown files/);
+			for (const p of ['notes.txt', 'notes.markdown']) {
+				input.value = p;
+				byText(el, '.other button', 'Open').click();
+				await tick();
+				assert.match($(el, '.other').textContent, /opens Markdown files/);
+			}
 			input.value = 'data/other/plan.md';
 			byText(el, '.other button', 'Open').click();
 			await tick();
@@ -430,29 +517,73 @@ describe('another file', () => {
 		}
 	});
 
-	it('reads the whole of a long plan when Wheelhouse’s plugin read cut it short', async () => {
-		const real = globalThis.fetch;
-		globalThis.fetch = async () =>
-			new Response('# Long plan\n\nStart.\n\nThe end.\n', { status: 200 });
-		try {
-			const el = mount({
-				d: data([
-					{
-						path: 'data/lumen-plan/plan.md',
-						name: 'plan.md',
-						source: 'home',
-						text: '# Long plan\n\nStart.',
-						truncated: true
-					}
-				])
-			});
-			assert.match($(el, '.banner').textContent, /only its first 64 KB/);
-			await tick();
-			await tick();
-			assert.match($(el, '.doc').textContent, /The end\./);
-			assert.equal($(el, '.banner'), null);
-		} finally {
-			globalThis.fetch = real;
-		}
+	it('guards a file opened by path the same way on Send', async () => {
+		disk.set('data/other/plan.md', '# Other plan\n\nHello.\n');
+		const host = fakeHost();
+		const el = mount({ host });
+		byText(el, '.picker .chip', 'Another file…').click();
+		$(el, '.other input').value = 'data/other/plan.md';
+		byText(el, '.other button', 'Open').click();
+		await settle();
+		byText(el, '.verdict button', 'Approve').click();
+		disk.set('data/other/plan.md', '# Other plan\n\nHello again.\n');
+		byText(el, '.panel button', 'Send to Firstmate').click();
+		await settle();
+		assert.equal(host.sent.length, 0);
+		byText(el, '.panel button', 'Use the new text').click();
+		assert.match($(el, '.doc').textContent, /Hello again\./);
+		byText(el, '.panel button', 'Send to Firstmate').click();
+		await settle();
+		assert.equal(host.sent[0].subject, 'data/other/plan.md: Approve');
+	});
+});
+
+describe('a long plan', () => {
+	const WHOLE = `${PLAN}\n## Later\n\nThe end.\n`;
+	const long = () =>
+		data([
+			{
+				path: 'data/lumen-plan/plan.md',
+				name: 'plan.md',
+				source: 'home',
+				text: PLAN.slice(0, 60),
+				truncated: true
+			}
+		]);
+
+	it('reads the whole of it when Wheelhouse’s plugin read cut it short', async () => {
+		disk.set('data/lumen-plan/plan.md', WHOLE);
+		const el = mount({ d: long() });
+		assert.match($(el, '.banner').textContent, /only its first 64 KB/);
+		assert.match($(el, '.panel').textContent, /Reading the whole document/);
+		await settle();
+		assert.match($(el, '.doc').textContent, /The end\./);
+		assert.equal($(el, '.banner'), null);
+	});
+
+	it('keeps its notes in place, with no “changed”, each time it opens', async () => {
+		disk.set('data/lumen-plan/plan.md', WHOLE);
+		const el = mount({ d: long() });
+		await settle();
+		comment(el, 25, 'Say what happens later');
+		const before = localStorage.getItem(`plan-review:v1:${TASK}:data/lumen-plan/plan.md`);
+		const again = mount({ d: long() });
+		await settle();
+		assert.equal($(again, '.banner'), null);
+		assert.match($(unitAt(again, 25), '.note').textContent, /Say what happens later/);
+		assert.equal(localStorage.getItem(`plan-review:v1:${TASK}:data/lumen-plan/plan.md`), before);
+	});
+
+	it('notices a change past the first 64 KB on Send', async () => {
+		disk.set('data/lumen-plan/plan.md', WHOLE);
+		const host = fakeHost();
+		const el = mount({ d: long(), host });
+		await settle();
+		byText(el, '.verdict button', 'Approve').click();
+		disk.set('data/lumen-plan/plan.md', WHOLE.replace('The end.', 'The real end.'));
+		byText(el, '.panel button', 'Send to Firstmate').click();
+		await settle();
+		assert.equal(host.sent.length, 0);
+		assert.match($(el, '.panel [role="alert"]').textContent, /changed since you opened it/);
 	});
 });

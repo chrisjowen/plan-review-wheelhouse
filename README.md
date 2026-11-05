@@ -14,21 +14,21 @@ wheelhouse plugin install chrisjowen/plan-review-wheelhouse
 
 Or use **Settings → Plugins → Install plugin** with `chrisjowen/plan-review-wheelhouse`. Before anything is installed, Wheelhouse shows that the plugin **sends Firstmate feedback lists about a task, each when you click to send it**; that is the only thing it sends. It is off until you turn it on in **Settings → Plugins → Plan review**, for every project or only some.
 
-Sending needs a Wheelhouse with the plugin `feedback` capability ([chrisjowen/wheelhouse#98](https://github.com/chrisjowen/wheelhouse/pull/98)). On an older Wheelhouse the button reads **Open in Firstmate's chat** instead: it puts the same list in the chat box, and nothing is sent until you send it there.
+Sending needs a Wheelhouse with the plugin `feedback` capability ([chrisjowen/wheelhouse#98](https://github.com/chrisjowen/wheelhouse/pull/98)). On an older Wheelhouse, **Send to Firstmate** stays off and the tab says Wheelhouse needs updating.
 
 ## Using it
 
 Open a task and pick the **Plan review** tab.
 
-**The documents.** The tab offers the task's Markdown documents in Firstmate's home, `data/<task>/plan.md`, `spec.md` and `report.md` first, then any other `.md` there (Firstmate's briefs last), and any Markdown file the task changed in its worktree. **Another file…** opens any Markdown file by path: one relative to the Firstmate home, such as `data/<task>/plan.md`, or a full path inside a live task's project or worktree. It is read through Wheelhouse's own document reader, so it keeps to the same folders, and the tab remembers it for that task. The document renders as Wheelhouse's reader renders it: GitHub-flavoured Markdown, with nothing in it that can run.
+**The documents.** The tab offers the task's Markdown documents in Firstmate's home, `data/<task>/plan.md`, `spec.md` and `report.md` first, then any other `.md` there (Firstmate's briefs last), and any Markdown file the task changed in its worktree. **Another file…** opens any Markdown (`.md`) file by path: one relative to the Firstmate home, such as `data/<task>/plan.md`, or a full path inside a live task's project or worktree. It is read through Wheelhouse's own document reader, so it keeps to the same folders, and the tab remembers it for that task. The document renders as Wheelhouse's reader renders it: GitHub-flavoured Markdown, with nothing in it that can run.
 
 **Commenting.** Each paragraph, heading, list item, table and code block shows its line number. Hover over it and click **+** to write a note about those lines. Or select a passage and click **Comment on this**: the note quotes what you selected, with its lines. Notes sit under the text they are about, and **Edit** and **Remove** are beside each one. **⌘↵** (Ctrl+Enter) saves a note and **Esc** leaves it.
 
 ![A passage selected in step 3 of the plan, with the Comment on this button above it](docs/images/selection.png)
 
-**Your review.** Beside the document (below it on a narrow page) are your notes in the order they appear, each one a click away. Choose **Approve** or **Request changes**, and add a note about the plan as a whole if you like. **Send to Firstmate** sends it all as one list. Approving with nothing to add still sends one line, _Approved as written. Go ahead._, so Firstmate hears your verdict. Requesting changes needs at least one note. On a narrow page a bar at the bottom keeps **Send to Firstmate** in view (or **Finish your review**, which takes you to the verdict).
+**Your review.** Beside the document (below it on a narrow page) are your notes in the order they appear, each one a click away. Choose **Approve** or **Request changes**, and add a note about the plan as a whole if you like. **Send to Firstmate** first reads the document again through Wheelhouse's document reader, whole, and sends it all as one list only if it is the text you commented on. If it changed since you opened it, nothing is sent: the tab says so and offers **Use the new text**, which moves your notes onto the new text (see **Drafts**) so you can check them and send again. The same goes for a file opened by path. Approving with nothing to add still sends one line, _Approved as written. Go ahead._, so Firstmate hears your verdict. Requesting changes needs at least one note. On a narrow page a bar at the bottom keeps **Send to Firstmate** in view (or **Finish your review**, which takes you to the verdict).
 
-**Drafts.** Your notes, verdict and overall note are kept in this browser per task and document until you send them, so you can leave and come back. A dot on a document's name means it has a draft. **Discard this draft** clears it. If the document changes while you have a draft, your notes move with the text they quote, and a note whose text is gone is marked **text changed**.
+**Drafts.** Your notes, verdict and overall note are kept in this browser per task and document until you send them, so you can leave and come back. A dot on a document's name means it has a draft. **Discard this draft** clears it. If the document changes while you have a draft, your notes move with the text they quote, and a note whose text is gone is marked **text changed**. A document longer than 64 KB is shown, and its draft opened, once its whole text has been read.
 
 ### What Firstmate receives
 
@@ -53,7 +53,7 @@ A list holds up to 30 lines of up to 500 characters each, Wheelhouse's limits fo
 
 ## What it reads and sends
 
-- **Reads.** The tab's provider, run by Wheelhouse on the server, lists `data/<task>/` in the Firstmate home and reads up to 8 Markdown files there, and up to 4 Markdown files the task changed in its worktree, each up to 64 KB (Wheelhouse's limit for plugins). A longer document in the home is read whole, when you open it, through Wheelhouse's document reader (`/api/files`), as is a file you open by path.
+- **Reads.** The tab's provider, run by Wheelhouse on the server, lists `data/<task>/` in the Firstmate home and reads up to 8 Markdown files there, and up to 4 Markdown files the task changed in its worktree, each up to 64 KB (Wheelhouse's limit for plugins). For each Markdown file the task changed, it asks git for the worktree's full path, so the tab can read that file again. A longer document in the home is read whole, when you open it, through Wheelhouse's document reader (`/api/files`), as is a file you open by path; and on **Send to Firstmate** the document is read again the same way, to check it is unchanged.
 - **Sends.** Only when you click **Send to Firstmate**, through Wheelhouse's `feedback` capability, as one list about the task the tab is on. There is no other way for it to message Firstmate. It has no companion service or settings, and the tab talks only to Wheelhouse.
 - **Keeps.** Drafts, the files you opened by path, and what you last sent are kept in this browser's local storage, not in the Firstmate home.
 

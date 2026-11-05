@@ -8,8 +8,9 @@
  * reads it as Wheelhouse's reader draws it, and comments: the + beside a
  * line, or a selected passage. Then Approve or Request changes, with an
  * optional note for the whole document, and Send: one feedback list to
- * Firstmate about this task. The draft is kept in the browser per task and
- * file until it is sent.
+ * Firstmate about this task, once the document is read again and found
+ * unchanged. The draft is kept in the browser per task and file until it is
+ * sent.
  *
  * The element draws in light DOM so text in the document can be selected
  * and read back; its styles are all scoped to its tag.
@@ -25,7 +26,6 @@ import {
 	fingerprint,
 	inOrder,
 	lineLabel,
-	listText,
 	MAX_QUOTE,
 	MAX_TEXT,
 	noteId,
@@ -70,7 +70,7 @@ export class PlanReviewSection extends HTMLElement {
 		this.entry = null;
 		/** Files the captain opened by path: path → { path, name, source, text, truncated } */
 		this.extra = new Map();
-		/** The whole of a long document, read through Wheelhouse's reader: path → { text, base } */
+		/** A document as last read through Wheelhouse's reader, over the provider's text: path → { text, base, truncated } */
 		this.full = new Map();
 		this.path = null;
 		this.draft = null;
@@ -79,6 +79,8 @@ export class PlanReviewSection extends HTMLElement {
 		this.composer = null;
 		this.pending = null;
 		this.changed = false;
+		this.reading = false;
+		this.stale = null;
 		this.otherOpen = false;
 		this.sending = false;
 		this.error = null;
@@ -163,10 +165,10 @@ export class PlanReviewSection extends HTMLElement {
 
 	get doc() {
 		const d = this.docs.find((x) => x.path === this.path) ?? null;
-		// The whole of a long document, while what the provider read of it is unchanged.
+		// What Wheelhouse's reader read of it, while what the provider read of it is unchanged.
 		const full = d ? this.full.get(d.path) : null;
 		if (full && full.base === fingerprint(d.text))
-			return { ...d, text: full.text, truncated: false };
+			return { ...d, text: full.text, truncated: full.truncated };
 		return d;
 	}
 
@@ -184,9 +186,12 @@ export class PlanReviewSection extends HTMLElement {
 		const key = doc ? `${task}\n${doc.path}\n${hash}` : null;
 		if (key !== this.shown) {
 			this.shown = key;
-			this.loadDraft(doc, hash);
+			// A long plan's draft waits for its whole text, so its notes are not moved against a part of it.
+			this.reading =
+				!!doc?.truncated && doc.source === 'home' && this.full.get(doc.path)?.base !== hash;
+			this.loadDraft(this.reading ? null : doc, hash);
 			this.renderDocument();
-			if (doc?.truncated && doc.source === 'home') void this.readFull(doc.path);
+			if (this.reading) void this.readFull(doc.path);
 		}
 		this.renderPanel();
 	}
@@ -197,6 +202,7 @@ export class PlanReviewSection extends HTMLElement {
 		this.changed = false;
 		this.notice = null;
 		this.error = null;
+		this.stale = null;
 		if (this.taskId) store.set(`plan-review:v1:last:${this.taskId}`, path);
 		this.sync();
 	}
@@ -322,9 +328,7 @@ export class PlanReviewSection extends HTMLElement {
 
 	/** A Markdown file by path, read through Wheelhouse's reader (/api/files), then shown. */
 	async openPath(p) {
-		if (!/\.(md|markdown)$/i.test(p.split(/[?#]/)[0])) {
-			return { ok: false, error: 'Plan review opens Markdown files (.md).' };
-		}
+		if (!isMarkdown(p)) return { ok: false, error: 'Plan review opens Markdown files (.md).' };
 		const r = await readThroughWheelhouse(p);
 		if (!r.ok) return r;
 		const name = p.split('/').pop();
@@ -348,7 +352,7 @@ export class PlanReviewSection extends HTMLElement {
 		const task = this.taskId;
 		const paths = task ? store.get(`plan-review:v1:extra:${task}`) : null;
 		if (!Array.isArray(paths)) return;
-		for (const p of paths.filter((x) => typeof x === 'string').slice(0, 10)) {
+		for (const p of paths.filter(isMarkdown).slice(0, 10)) {
 			const r = await readThroughWheelhouse(p);
 			if (!r.ok) continue;
 			this.extra.set(p, {
@@ -362,14 +366,29 @@ export class PlanReviewSection extends HTMLElement {
 		if (this.extra.size && this.isConnected) this.sync();
 	}
 
+	/** The whole of a long document; if Wheelhouse's reader cannot read it, the part the provider read. */
 	async readFull(path) {
 		const base = this.docs.find((x) => x.path === path)?.text;
 		if (base === undefined) return;
 		const r = await readThroughWheelhouse(path);
-		if (r.ok && r.text.length > base.length) {
-			this.full.set(path, { text: r.text, base: fingerprint(base) });
-			if (this.isConnected) this.sync();
-		}
+		if (this.docs.find((x) => x.path === path)?.text !== base) return;
+		this.full.set(
+			path,
+			r.ok
+				? { text: r.text, base: fingerprint(base), truncated: false }
+				: { text: base, base: fingerprint(base), truncated: true }
+		);
+		if (this.isConnected) this.sync();
+	}
+
+	/** Show the document as it now is, so its notes move to where their quotes are. */
+	useNewText() {
+		const s = this.stale;
+		const base = this.docs.find((x) => x.path === s?.path)?.text;
+		this.stale = null;
+		if (base !== undefined)
+			this.full.set(s.path, { text: s.text, base: fingerprint(base), truncated: false });
+		this.sync();
 	}
 
 	// ---- the document ----
@@ -758,7 +777,11 @@ export class PlanReviewSection extends HTMLElement {
 		if (!doc || !d) {
 			this.panel.replaceChildren(
 				h('h2', null, 'Your review'),
-				h('p', { class: 'hint' }, 'Open a document to review it.')
+				h(
+					'p',
+					{ class: 'hint' },
+					this.reading ? 'Reading the whole document…' : 'Open a document to review it.'
+				)
 			);
 			this.dock.replaceChildren();
 			this.dock.hidden = true;
@@ -826,24 +849,22 @@ export class PlanReviewSection extends HTMLElement {
 		const dockSend = h('button', { type: 'button', class: 'btn primary' });
 		const refresh = () => {
 			const built = buildList(this.review());
-			send.disabled = this.sending || !built.ok;
-			send.textContent = this.sending
-				? 'Sending…'
-				: canSend
-					? 'Send to Firstmate'
-					: 'Open in Firstmate’s chat';
-			why.className = this.error ? 'why error' : 'why';
+			send.disabled = this.sending || !built.ok || !canSend;
+			send.textContent = this.sending ? 'Sending…' : 'Send to Firstmate';
+			const error = canSend
+				? this.error
+				: 'This Wheelhouse is too old to send plan reviews to Firstmate. Update Wheelhouse to send it.';
+			why.className = error ? 'why error' : 'why';
 			// Just after a send the draft is empty, and the sent note says enough.
 			const quiet = this.notice && !built.ok;
-			why.textContent =
-				this.error ?? (built.ok ? sendHint(built.list, canSend) : quiet ? '' : built.reason);
+			why.textContent = error ?? (built.ok ? sendHint(built.list) : quiet ? '' : built.reason);
 			summary.textContent = [
 				notes.length ? plural(notes.length, 'note') : 'No notes yet',
 				VERDICTS[d.verdict]
 			]
 				.filter(Boolean)
 				.join(' · ');
-			dockSend.disabled = this.sending;
+			dockSend.disabled = this.sending || (built.ok && !canSend);
 			dockSend.textContent = built.ok ? send.textContent : 'Finish your review';
 			dockSend.dataset.action = built.ok ? 'send' : 'finish';
 		};
@@ -872,6 +893,7 @@ export class PlanReviewSection extends HTMLElement {
 			verdict,
 			overall,
 			h('div', { class: 'send' }, send, why),
+			this.stale?.path === doc.path ? this.staleEl() : null,
 			this.notice ??
 				(sent
 					? drafting
@@ -895,6 +917,24 @@ export class PlanReviewSection extends HTMLElement {
 		this.dock.replaceChildren(summary, dockSend);
 	}
 
+	/** Why nothing was sent: the document changed since it was opened. */
+	staleEl() {
+		return h(
+			'div',
+			{ class: 'banner', role: 'alert' },
+			h(
+				'span',
+				null,
+				`${this.stale.name} changed since you opened it, so nothing was sent. Move your notes onto the new text, check them, then send again.`
+			),
+			h(
+				'button',
+				{ type: 'button', class: 'btn', onclick: () => this.useNewText() },
+				'Use the new text'
+			)
+		);
+	}
+
 	/** Bring the review into view, at the verdict when there is none yet. */
 	finish() {
 		this.panel.scrollIntoView?.({ block: 'start', behavior: 'smooth' });
@@ -915,51 +955,59 @@ export class PlanReviewSection extends HTMLElement {
 	}
 
 	/**
-	 * Send the review. host.sendFeedback is called first thing in the click,
-	 * while the browser still counts it as the captain's.
+	 * Send the review, after reading the document again: if it is not the text
+	 * the notes were made on, nothing is sent and the captain is shown why.
+	 * Whatever happens on another document meanwhile, the send settles this
+	 * document's draft only.
 	 */
-	send() {
-		const built = buildList(this.review());
-		if (!built.ok || this.sending) return;
+	async send() {
+		const review = this.review();
+		const built = buildList(review);
+		if (!built.ok || this.sending || typeof this.host?.sendFeedback !== 'function') return;
 		const task = this.taskId;
-		if (typeof this.host?.sendFeedback !== 'function') {
-			// An older Wheelhouse: the list goes into Firstmate's chat box, for the captain to send.
-			window.location.assign(`/?draft=${encodeURIComponent(listText(task, built.list))}`);
-			return;
-		}
-		const sending = this.host.sendFeedback({
-			subject: built.list.subject,
-			items: built.list.items
-		});
 		const doc = this.doc;
-		const d = this.draft;
+		const noted = review.notes.length;
 		this.sending = true;
 		this.error = null;
+		this.stale = null;
 		this.renderPanel();
-		Promise.resolve(sending)
-			.catch(() => ({ ok: false, error: 'Wheelhouse could not send the review.' }))
-			.then((r) => {
-				this.sending = false;
-				if (!r?.ok) {
-					this.error = r?.error || 'Wheelhouse could not send the review.';
-					this.renderPanel();
-					return;
-				}
-				const record = {
-					at: Date.now(),
-					verdict: d.verdict,
-					notes: d.notes.length,
-					pending: !!r.pending
-				};
-				store.set(sentKey(task, doc.path), record);
-				this.draft = emptyDraft(d.hash);
-				this.save();
-				this.composer = null;
-				this.notice = sentEl(record, true);
-				this.renderNotes();
-				this.renderPicker();
-				this.renderPanel();
-			});
+		const here = () => this.path === doc.path;
+		const stop = (error) => {
+			this.sending = false;
+			if (here()) this.error = error;
+			this.renderPanel();
+		};
+		const now =
+			doc.file || doc.source !== 'task'
+				? await readThroughWheelhouse(doc.file ?? doc.path)
+				: { ok: false, error: 'Wheelhouse gave no path to read it by.' };
+		if (!now.ok)
+			return stop(`Could not read ${doc.name} again to check it is unchanged: ${now.error}`);
+		if (fingerprint(now.text) !== fingerprint(doc.text)) {
+			this.stale = { path: doc.path, name: doc.name, text: now.text };
+			return stop(null);
+		}
+		const r = await Promise.resolve(
+			this.host.sendFeedback({ subject: built.list.subject, items: built.list.items })
+		).catch(() => null);
+		if (!r?.ok) return stop(r?.error || 'Wheelhouse could not send the review.');
+		this.sending = false;
+		const record = {
+			at: Date.now(),
+			verdict: review.verdict,
+			notes: noted,
+			pending: !!r.pending
+		};
+		store.set(sentKey(task, doc.path), record);
+		store.set(draftKey(task, doc.path), null);
+		if (here() && this.draft) {
+			this.draft = emptyDraft(this.draft.hash);
+			this.composer = null;
+			this.notice = sentEl(record, true);
+			this.renderNotes();
+		}
+		this.renderPicker();
+		this.renderPanel();
 	}
 
 	discard() {
@@ -1004,12 +1052,11 @@ function slotOf(el) {
 	return [...el.children].find((c) => c.classList.contains('slot')) ?? null;
 }
 
-function sendHint(list, canSend) {
-	const n = list.items.length;
-	return canSend
-		? `Sends ${plural(n, 'line')} to Firstmate as one list, for this task’s worker.`
-		: `This Wheelhouse can’t send from plugins yet: the ${plural(n, 'line')} go into Firstmate’s chat box for you to send.`;
+function sendHint(list) {
+	return `Checks the document is unchanged, then sends ${plural(list.items.length, 'line')} to Firstmate as one list, for this task’s worker.`;
 }
+
+const isMarkdown = (p) => typeof p === 'string' && /\.md$/i.test(p.split(/[?#]/)[0]);
 
 const sentWhat = (rec) => `${VERDICTS[rec.verdict] ?? 'Review'}, ${plural(rec.notes, 'note')}`;
 
