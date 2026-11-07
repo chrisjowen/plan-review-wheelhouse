@@ -3,7 +3,7 @@
 	"name": "plan-review",
 	"displayName": "Plan review",
 	"version": "0.1.0",
-	"description": "A section on each task where you read its plan (plan.md, spec.md, report.md, or any Markdown file you point at), comment on lines or a passage, approve it or ask for changes, and send it all to Firstmate as one list. Nothing is sent until you click Send.",
+	"description": "A Plan review page in Wheelhouse's menu: pick a task's plan (plan.md, spec.md, report.md, or any Markdown file you point at), comment on lines or a passage in a chat-style thread beside it, approve it or ask for changes, and send it all to Firstmate as one list. Nothing is sent until you click Send.",
 	"author": {
 		"name": "Chris Owen",
 		"url": "https://github.com/chrisjowen"
@@ -18,8 +18,8 @@
 		"enabledByDefault": false,
 		"contributions": [
 			{
-				"id": "plan",
-				"slot": "task.section"
+				"id": "review",
+				"slot": "nav.page"
 			}
 		],
 		"capabilities": ["feedback"]

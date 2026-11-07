@@ -1,5 +1,5 @@
 /**
- * Small DOM helpers for the plan review section. Everything Wheelhouse or a
+ * Small DOM helpers for the plan review page. Everything Wheelhouse or a
  * note says becomes text nodes: `h` sets text with `textContent`, and links
  * keep to http(s) and same-origin paths. (The document itself is sanitised
  * HTML, from doc.js.)

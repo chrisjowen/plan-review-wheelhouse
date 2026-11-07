@@ -40,9 +40,14 @@ describe('the manifest', () => {
 		}
 	});
 
-	it('stays within the provider limits Wheelhouse allows', () => {
+	it('is a page of its own in the menu, fed by a fleet provider within Wheelhouse’s limits', () => {
+		assert.deepEqual(
+			plugin.contributions.map((c) => c.slot),
+			['nav.page']
+		);
 		for (const p of plugin.providers) {
-			assert.equal(p.scope, 'task');
+			// A nav.page entry takes a provider about the whole fleet.
+			assert.equal(p.scope, 'fleet');
 			assert.ok(p.timeoutMs <= 10_000);
 		}
 	});
