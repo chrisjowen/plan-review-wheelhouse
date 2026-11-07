@@ -73,6 +73,7 @@ npm run lint   # ESLint and Prettier
 - `wheelhouse/server/index.js` is the server entry: the fleet `plans` provider.
 - `wheelhouse/ui/index.js` is the page, the custom element `plan-review-page`; `doc.js` renders the document into parts that know their lines, `notes.js` turns the review into the feedback list, and `styles.js` lays the page out. The element draws in light DOM, so Wheelhouse's own chat classes (`bubble`, `bubble-captain`, `reply-quote`, `chat-grid`) style the thread exactly as they style Firstmate's chat; everything else uses only Wheelhouse's CSS variables, so the page follows the light and dark themes.
 - `wheelhouse/ui/vendor/` holds the Markdown libraries Wheelhouse's own reader uses, at the same versions: marked 16.4.2 (MIT) and DOMPurify 3.4.17 (Apache-2.0 or MPL-2.0), each with its licence header. Wheelhouse loads installed plugins without a build step, so they are copied in as they ship. After changing a version in `package.json`, run `npm install && npm run vendor`; a test checks the copies match.
+- Testing in a real Wheelhouse: a test run that starts a Wheelhouse (or any other server) must save the PID of each process it starts and stop only those PIDs (`kill <pid>`). Never stop them with `pkill -f`, `killall` or any other pattern match: other Wheelhouse servers run on the same machine, and a pattern such as `dist/cli.js __server` stops them too.
 
 ## Licence
 
