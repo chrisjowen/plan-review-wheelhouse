@@ -81,7 +81,7 @@ export class PlanReviewPage extends HTMLElement {
 		this.host = null;
 		this.entry = null;
 		this.taskId = null;
-		/** A task a link named that has no documents on offer, so a file can still be opened for it. */
+		/** A task shown that is not on offer: one a link named, or one the data dropped, kept as last seen. */
 		this.adhoc = null;
 		/** What a link asked to open: `?task=…&doc=…`, used once. */
 		this.want = null;
@@ -108,7 +108,9 @@ export class PlanReviewPage extends HTMLElement {
 	}
 
 	set data(v) {
+		const shown = this.task;
 		this._data = v;
+		if (shown && !this.tasks.some((t) => t.id === shown.id)) this.adhoc = shown;
 		if (this.isConnected) {
 			this.sync();
 			void this.reread();
@@ -282,6 +284,8 @@ export class PlanReviewPage extends HTMLElement {
 		this.error = null;
 		this.stale = null;
 		if (this.taskId) store.set(lastKey(this.taskId), path);
+		const d = this.doc;
+		if (d?.error) this.texts.delete(readPath(d));
 		this.sync();
 	}
 
@@ -304,7 +308,7 @@ export class PlanReviewPage extends HTMLElement {
 	 */
 	async reread() {
 		const d = this.doc;
-		if (!d || d.text === null || this.sending) return;
+		if (!d || (d.text === null && !d.error) || this.sending) return;
 		const p = readPath(d);
 		if (this.loading.has(p)) return;
 		this.loading.add(p);

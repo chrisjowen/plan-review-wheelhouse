@@ -199,6 +199,23 @@ describe('the plans provider', () => {
 		);
 	});
 
+	it('keeps tasks waiting on the captain and with something to read within the 40-task cap', async () => {
+		const tasks = [
+			...Array.from({ length: 45 }, (_, i) => task(`busy-${String(i).padStart(2, '0')}`)),
+			task('z-empty', { status: 'needs-review' }),
+			task('z-review', { status: 'needs-review', statusLabel: 'Needs your review' })
+		];
+		const home = Object.fromEntries(
+			tasks.filter((t) => t.id !== 'z-empty').map((t) => [`data/${t.id}/plan.md`, '#'])
+		);
+		const r = await provider.fetch(ctx({ tasks, home }));
+		const ids = r.value.tasks.map((t) => t.id);
+		assert.equal(ids.length, 40);
+		assert.equal(ids[0], 'z-review');
+		assert.ok(!ids.includes('z-empty'));
+		assert.equal(ids[39], 'busy-38');
+	});
+
 	it('is there with no plans yet', async () => {
 		const r = await provider.fetch(ctx({ tasks: [] }));
 		assert.equal(r.available, true);

@@ -105,7 +105,10 @@ async function taskDocs(ctx, task, trees) {
 const waiting = (t) => t.status === 'needs-decision' || t.status === 'needs-review';
 
 async function fetch(ctx) {
-	const tasks = (ctx.tasks ?? []).filter((t) => !OVER.has(t.status)).slice(0, MAX_TASKS);
+	// Plans waiting on the captain first; otherwise as Wheelhouse lists the tasks.
+	const tasks = (ctx.tasks ?? [])
+		.filter((t) => !OVER.has(t.status))
+		.sort((a, b) => Number(waiting(b)) - Number(waiting(a)));
 	// One `git worktree list` per project, shared by its tasks.
 	const lists = new Map();
 	const trees = (projectId) => {
@@ -127,9 +130,7 @@ async function fetch(ctx) {
 				: null;
 		})
 	);
-	const list = found.filter(Boolean);
-	// Plans waiting on the captain first; otherwise as Wheelhouse lists the tasks.
-	list.sort((a, b) => Number(b.waiting) - Number(a.waiting));
+	const list = found.filter(Boolean).slice(0, MAX_TASKS);
 	return {
 		available: true,
 		value: { schema: 'plan-review.v2', tasks: list },

@@ -271,6 +271,43 @@ describe('picking a plan', () => {
 		assert.equal($(el, 'h1.title').textContent, 'Could not read plan.md');
 		assert.equal($(el, '.doc .empty').textContent, 'There is no such file.');
 	});
+
+	it('tries a document it could not read again, when the window comes back and when it is picked again', async () => {
+		disk.delete(`data/${TASK}/plan.md`);
+		const el = await mount();
+		assert.equal($(el, 'h1.title').textContent, 'Could not read plan.md');
+		disk.set(`data/${TASK}/plan.md`, PLAN);
+		await refocus();
+		assert.equal($(el, '.doc h1').textContent, 'Share links for boards');
+
+		disk.delete(`data/${TASK}/spec.md`);
+		await open(el, 'spec.md');
+		assert.equal($(el, 'h1.title').textContent, 'Could not read spec.md');
+		await open(el, 'plan.md');
+		disk.set(`data/${TASK}/spec.md`, SPEC);
+		await open(el, 'spec.md');
+		assert.equal($(el, '.doc h1').textContent, 'Spec');
+	});
+
+	it('keeps the task shown, its document and a half-written note, when a refresh no longer lists it', async () => {
+		const el = await mount({ d: data([OPS, LUMEN]) });
+		byText(el, '.task select option', 'Plan the share links · waiting on you');
+		$(el, '.task select').value = TASK;
+		$(el, '.task select').dispatchEvent(new window.Event('change'));
+		await settle();
+		await open(el, 'spec.md');
+		$(unitAt(el, 3), ':scope > .gutter .add').click();
+		type($(el, '.composer textarea'), 'half written');
+		el.data = data([OPS]);
+		await settle();
+		assert.equal($(el, '.task select').value, TASK);
+		assert.equal($(el, '.doc h1').textContent, 'Spec');
+		assert.equal($(el, '.composer textarea').value, 'half written');
+		el.data = data([OPS, LUMEN]);
+		await settle();
+		assert.equal($(el, '.task select').value, TASK);
+		assert.equal($(el, '.composer textarea').value, 'half written');
+	});
 });
 
 describe('commenting', () => {
