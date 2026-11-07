@@ -151,7 +151,7 @@ describe('the plans provider', () => {
 		const c = ctx({ tasks, changed, home: { 'data/lumen-two/plan.md': '# Two' } });
 		const r = await provider.fetch(c);
 		assert.equal(c.calls.filter((x) => x[0] === 'exec').length, 1);
-		// lumen-two's branch has no worktree, so only its home plan is offered; a done task is not asked about.
+		// lumen-two's branch has no worktree, so only its home plan is offered; a done task is left out.
 		assert.deepEqual(
 			r.value.tasks.map((t) => [t.id, t.docs.map((d) => d.path)]),
 			[
@@ -197,6 +197,21 @@ describe('the plans provider', () => {
 				['a-working', false]
 			]
 		);
+	});
+
+	it('looks up documents for at most 60 tasks, waiting ones first, and leaves out done ones', async () => {
+		const tasks = [
+			task('a-done', { status: 'done' }),
+			...Array.from({ length: 70 }, (_, i) => task(`busy-${String(i).padStart(2, '0')}`)),
+			task('z-review', { status: 'needs-review' })
+		];
+		const c = ctx({ tasks });
+		await provider.fetch(c);
+		const looked = c.calls.filter((x) => x[0] === 'listDir').map((x) => x[1]);
+		assert.equal(looked.length, 60);
+		assert.ok(looked.includes('data/z-review'));
+		assert.ok(!looked.includes('data/a-done'));
+		assert.ok(!looked.includes('data/busy-59'));
 	});
 
 	it('keeps tasks waiting on the captain and with something to read within the 40-task cap', async () => {

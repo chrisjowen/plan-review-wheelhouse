@@ -15,6 +15,8 @@
  */
 
 const MAX_TASKS = 40;
+/** The most tasks whose documents one fetch looks up. */
+const MAX_CANDIDATES = 60;
 const MAX_HOME_DOCS = 8;
 const MAX_TASK_DOCS = 4;
 const TIMEOUT_MS = 8_000;
@@ -24,7 +26,7 @@ export const FIRST = ['plan.md', 'spec.md', 'report.md'];
 const LAST = ['brief.md', 'launch-brief.md'];
 const MARKDOWN = /\.(md|markdown)$/i;
 /** Tasks whose plan no longer needs reviewing. */
-const OVER = new Set(['landed']);
+const OVER = new Set(['landed', 'done']);
 /** Tasks with no worktree worth asking git about. */
 const NO_WORKTREE = new Set(['landed', 'done', 'queued']);
 
@@ -108,7 +110,8 @@ async function fetch(ctx) {
 	// Plans waiting on the captain first; otherwise as Wheelhouse lists the tasks.
 	const tasks = (ctx.tasks ?? [])
 		.filter((t) => !OVER.has(t.status))
-		.sort((a, b) => Number(waiting(b)) - Number(waiting(a)));
+		.sort((a, b) => Number(waiting(b)) - Number(waiting(a)))
+		.slice(0, MAX_CANDIDATES);
 	// One `git worktree list` per project, shared by its tasks.
 	const lists = new Map();
 	const trees = (projectId) => {

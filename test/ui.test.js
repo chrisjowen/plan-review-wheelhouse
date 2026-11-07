@@ -308,6 +308,23 @@ describe('picking a plan', () => {
 		assert.equal($(el, '.task select').value, TASK);
 		assert.equal($(el, '.composer textarea').value, 'half written');
 	});
+
+	it('keeps the newest documents of a task that drops out, comes back with more, and drops out again', async () => {
+		disk.set(`data/${TASK}/report.md`, '# Report\n\nAll done.\n');
+		const el = await mount();
+		el.data = data([]);
+		await settle();
+		const more = { ...LUMEN, docs: [...LUMEN.docs, home(TASK, 'report.md')] };
+		el.data = data([more]);
+		await settle();
+		await open(el, 'report.md');
+		$(unitAt(el, 3), ':scope > .gutter .add').click();
+		type($(el, '.composer textarea'), 'half written');
+		el.data = data([]);
+		await settle();
+		assert.equal($(el, '.doc h1').textContent, 'Report');
+		assert.equal($(el, '.composer textarea').value, 'half written');
+	});
 });
 
 describe('commenting', () => {

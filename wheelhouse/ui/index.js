@@ -110,7 +110,8 @@ export class PlanReviewPage extends HTMLElement {
 	set data(v) {
 		const shown = this.task;
 		this._data = v;
-		if (shown && !this.tasks.some((t) => t.id === shown.id)) this.adhoc = shown;
+		const own = Array.isArray(v?.tasks) ? v.tasks : [];
+		if (shown && !own.some((t) => t.id === shown.id)) this.adhoc = shown;
 		if (this.isConnected) {
 			this.sync();
 			void this.reread();
