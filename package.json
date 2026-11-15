@@ -1,0 +1,29 @@
+{
+	"name": "plan-review-wheelhouse",
+	"version": "0.1.0",
+	"private": true,
+	"description": "Wheelhouse plugin: review a Firstmate plan line by line, then send your notes and your verdict to Firstmate as one list.",
+	"license": "MIT",
+	"author": "Chris Owen",
+	"repository": "github:chrisjowen/plan-review-wheelhouse",
+	"type": "module",
+	"engines": {
+		"node": "^20.19.0 || ^22.13.0 || >=24.0.0"
+	},
+	"scripts": {
+		"lint": "eslint . && prettier --check .",
+		"format": "prettier --write .",
+		"test": "node --test test/*.test.js",
+		"vendor": "node scripts/vendor.js"
+	},
+	"devDependencies": {
+		"@eslint/js": "^10.0.1",
+		"ajv": "^8.20.0",
+		"dompurify": "3.4.17",
+		"eslint": "^10.14.0",
+		"globals": "^17.13.0",
+		"jsdom": "^29.1.1",
+		"marked": "16.4.2",
+		"prettier": "^3.9.10"
+	}
+}
